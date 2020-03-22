@@ -7,18 +7,17 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/go-querystring/query"
 	"github.com/jinzhu/gorm"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // Stores the db value globally to be called
 var dB *gorm.DB
-var mux sync.Mutex
 var clientDB *mongo.Client
 
 type qOptions struct {
@@ -162,15 +161,14 @@ func apiReq(date string) []articleJSON {
 
 	err = json.Unmarshal(body, &articles)
 	check(err)
-	// if len(articles.Response.Docs) == 0 {
-	// 	return artArray
-	// }
-	fmt.Println(len(articles.Response.Docs))
 
 	for _, article := range articles.Response.Docs {
 		art := articleJSON{URL: article.WebURL, Abstract: article.Abstract, Title: article.Headline.Main, Byline: article.Byline.Original, Published: article.PubDate, Keywords: article.Keywords}
 		artArray = append(artArray, art)
-		openDBandInsertArticle(clientDB, date, art)
+		checkIf := findByTitleValidate(article.Headline.Main, clientDB.Database("articles").Collection(date))
+		if !checkIf {
+			openDBandInsertArticle(clientDB, date, art)
+		}
 	}
 
 	return artArray
@@ -206,6 +204,21 @@ func openDBandInsertArticle(client *mongo.Client, date string, article articleJS
 	fmt.Println(res)
 }
 
+func findByTitleValidate(title string, coll *mongo.Collection) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var dbArticle articleJSON
+
+	err := coll.FindOne(ctx, bson.M{"title": title}).Decode(&dbArticle)
+	if err != nil {
+		fmt.Println(false)
+
+		return false
+	}
+	fmt.Println(true)
+	return true
+}
+
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -215,10 +228,7 @@ func main() {
 	check(err)
 
 	clientDB = client
-	// collection := client.Database("testing").Collection("numbers")
 
-	// opts := options.FindOne()
-
-	getAllArticles(dateArray(2019, 12, 01, 2020, 01, 12))
+	getAllArticles(dateArray(2020, 01, 23, 2020, 01, 23))
 
 }
